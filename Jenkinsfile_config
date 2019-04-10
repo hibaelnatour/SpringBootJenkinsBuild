@@ -1,0 +1,49 @@
+def didTimeout = false
+
+node {
+    //Checkout Git repo
+    stage("Checkout"){
+        git credentialsId: '4f30bbd2-add7-4172-b9a9-649bfb6df9db', url: 'https://gheprivate.intra.corp/my-access-app-registry/app-registry-mobilesso.git'
+    }
+
+    stage ("Update configuration in Development Env") {
+        echo '*** Update secrets ***'
+        sh 'oc project 2d95-d'
+        sh 'oc apply -f ./ocp-conf-yaml/prepare-dev-env-conf.yaml'
+        echo '*** Update confimaps ***'
+        sh 'oc create configmap propertiesconfig-mobilesso --from-file=./config/application.properties -o yaml --dry-run | oc apply -f -'
+        echo '*** Update Completed***'
+    }
+
+    stage ("Update configuration in Val Env") {
+        echo '*** Update secrets ***'
+        sh 'oc project 2d95-v'
+        sh 'oc apply -f ./ocp-conf-yaml/prepare-val-env-conf.yaml'
+        echo '*** Update confimaps ***'
+        sh 'oc create configmap propertiesconfig-mobilesso --from-file=./config/val/application.properties -o yaml --dry-run | oc apply -f -'
+        echo '*** Update Completed***'
+    }
+
+    stage ("Promote to Production Env") {
+        echo '*** Waiting for Input ***'
+        try {
+            timeout(time: 40, unit: 'SECONDS') {
+                input 'Should we update configuration in Production?'
+            }
+        } catch(err) { // timeout reached or input false
+            didTimeout = true
+        }
+
+        if (didTimeout) {
+            echo "Timeout reached or input abort"
+            echo "Abort deploy to production"
+        } else {
+            echo '*** Update configuration in Production Env starting ***'
+            sh 'oc project 2d95-p'
+            sh 'oc apply -f ./ocp-conf-yaml/prepare-prod-env-conf.yaml'
+            echo '*** Update confimaps ***'
+            sh 'oc create configmap propertiesconfig-mobilesso --from-file=./config/prod/application.properties -o yaml --dry-run | oc apply -f -'
+            echo '*** Update Completed***'
+        }
+    }
+}
